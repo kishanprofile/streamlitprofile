@@ -3,8 +3,11 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-import ollama
 from pydantic import BaseModel, Field
+try:
+    from groq import Groq
+except ImportError:
+    Groq = None
 
 # ------------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & STYLING
@@ -49,7 +52,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------------------------------------------------------
-# 2. FULL CANDIDATE PROFILE DATA (UPDATED FROM RESUME)
+# 2. FULL CANDIDATE PROFILE DATA
 # ------------------------------------------------------------------------------
 PROFILE_DATA = {
     "name": "Kishan Sharma",
@@ -248,7 +251,7 @@ PROFILE_DATA = {
 }
 
 # ------------------------------------------------------------------------------
-# 3. LLM RESPONSE SCHEMA
+# 3. LLM RESPONSE SCHEMA & INFERENCE FUNCTION
 # ------------------------------------------------------------------------------
 class MatchAnalysis(BaseModel):
     match_percentage: int = Field(description="Match score from 0 to 100 based on alignment.")
@@ -257,10 +260,15 @@ class MatchAnalysis(BaseModel):
     skill_gaps_or_growth: list[str] = Field(description="Transferable areas or growth skills.")
     value_proposition: list[str] = Field(description="3 distinct bullet points detailing candidate impact.")
 
-# ------------------------------------------------------------------------------
-# 4. HELPER FUNCTIONS
-# ------------------------------------------------------------------------------
-def analyze_job_match(job_description: str, model_name: str = "llama3.2") -> MatchAnalysis:
+def analyze_job_match(job_description: str, api_key: str, model_name: str = "llama-3.3-70b-versatile") -> MatchAnalysis:
+    if not Groq:
+        raise ValueError("The 'groq' package is not installed. Please add 'groq' to requirements.txt.")
+    
+    if not api_key:
+        raise ValueError("Groq API Key is missing. Please provide one in the sidebar or Streamlit Secrets.")
+
+    client = Groq(api_key=api_key)
+
     prompt = f"""
     You are an executive technical talent recruiter evaluating candidate alignment.
     
@@ -275,29 +283,36 @@ def analyze_job_match(job_description: str, model_name: str = "llama3.2") -> Mat
     JOB DESCRIPTION TO EVALUATE:
     {job_description[:4000]}
     
-    Analyze alignment objectively and output strictly structured JSON matching the schema.
+    Analyze alignment objectively and output strictly structured JSON adhering to key names:
+    match_percentage (int), executive_summary (str), matching_skills (list of str), skill_gaps_or_growth (list of str), value_proposition (list of str).
     """
 
-    response = ollama.chat(
+    response = client.chat.completions.create(
         model=model_name,
         messages=[
-            {"role": "system", "content": "You are an expert technical talent recruiter. Output strictly valid JSON matching the provided schema."},
+            {"role": "system", "content": "You are an expert technical talent recruiter. Output strictly valid JSON matching the schema."},
             {"role": "user", "content": prompt}
         ],
-        format=MatchAnalysis.model_json_schema(),
-        options={"temperature": 0.2}
+        response_format={"type": "json_object"},
+        temperature=0.2
     )
-    return MatchAnalysis.model_validate_json(response.message.content)
+    
+    return MatchAnalysis.model_validate_json(response.choices[0].message.content)
 
 # ------------------------------------------------------------------------------
-# 5. UI NAVIGATION & LAYOUT
+# 4. UI NAVIGATION & SIDEBAR
 # ------------------------------------------------------------------------------
 st.sidebar.title(PROFILE_DATA['name'])
 st.sidebar.caption(PROFILE_DATA['contact']['email'])
 st.sidebar.markdown(f"📍 {PROFILE_DATA['contact']['location']} | 📞 {PROFILE_DATA['contact']['phone']}")
 st.sidebar.markdown("---")
 
-ollama_model = st.sidebar.text_input("Ollama Model Name", value="llama3.2")
+# Retrieve API key from secrets or user input
+groq_key = st.secrets.get("GROQ_API_KEY", "")
+if not groq_key:
+    groq_key = st.sidebar.text_input("Groq API Key (Free @ groq.com):", type="password", help="Enter a free API key from console.groq.com to power the AI matcher.")
+
+selected_model = st.sidebar.selectbox("LLM Model Engine", ["llama-3.3-70b-versatile", "llama3-8b-8192"])
 
 st.sidebar.markdown("---")
 nav_selection = st.sidebar.radio(
@@ -331,10 +346,12 @@ if nav_selection == "🎯 AI Role Matcher":
     if st.button("🚀 Analyze Alignment", type="primary"):
         if not jd_input.strip():
             st.warning("Please paste a Job Description first.")
+        elif not groq_key:
+            st.error("Missing API Key! Please enter a free Groq API key in the sidebar (or configure GROQ_API_KEY in Streamlit secrets).")
         else:
-            with st.spinner(f"Evaluating alignment using Ollama ({ollama_model})..."):
+            with st.spinner("Evaluating alignment using Groq AI Cloud..."):
                 try:
-                    result = analyze_job_match(jd_input, model_name=ollama_model)
+                    result = analyze_job_match(jd_input, api_key=groq_key, model_name=selected_model)
                     
                     st.markdown("---")
                     c1, c2 = st.columns([1, 2])
@@ -459,7 +476,7 @@ elif nav_selection == "📊 Skills & Competency Dashboard":
                 st.progress(row['rating'] / 10.0)
 
 # ==============================================================================
-# TAB 3: COMPLETE RESUME (FULL PROJECT summaries UNDER EACH COMPANY)
+# TAB 3: COMPLETE RESUME (FULL PROJECT SUMMARIES UNDER EACH COMPANY)
 # ==============================================================================
 elif nav_selection == "📜 Complete Resume":
     st.markdown(f'<div class="main-header">{PROFILE_DATA["name"]}</div>', unsafe_allow_html=True)
