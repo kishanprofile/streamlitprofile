@@ -260,7 +260,7 @@ class MatchAnalysis(BaseModel):
     skill_gaps_or_growth: list[str] = Field(description="Transferable areas or growth skills.")
     value_proposition: list[str] = Field(description="3 distinct bullet points detailing candidate impact.")
 
-def analyze_job_match(job_description: str, api_key: str, model_name: str = "llama-3.3-70b-versatile") -> MatchAnalysis:
+def analyze_job_match(job_description: str, api_key: str, model_name: str = "groq/compound") -> MatchAnalysis:
     if not Groq:
         raise ValueError("The 'groq' package is not installed. Please add 'groq' to requirements.txt.")
     
@@ -287,16 +287,16 @@ def analyze_job_match(job_description: str, api_key: str, model_name: str = "lla
     match_percentage (int), executive_summary (str), matching_skills (list of str), skill_gaps_or_growth (list of str), value_proposition (list of str).
     """
 
-    # Currently active & supported Groq model strings
+    # Model fallback list starting with groq/compound
     models_to_try = [
         model_name,
+        "groq/compound",
+        "groq/compound-mini",
         "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "llama-3.2-11b-vision-preview",
-        "llama-3.2-3b-preview"
+        "llama-3.1-8b-instant"
     ]
     
-    # Remove duplicates while preserving user order
+    # Remove duplicates while preserving order
     seen = set()
     unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
 
@@ -315,7 +315,6 @@ def analyze_job_match(job_description: str, api_key: str, model_name: str = "lla
             )
             return MatchAnalysis.model_validate_json(response.choices[0].message.content)
         except Exception as err:
-            # Catch exceptions (400 decommissioned/invalid or 404 not found) and try next model
             last_exception = err
             continue
 
@@ -335,10 +334,10 @@ if not groq_key:
     groq_key = st.sidebar.text_input("Groq API Key (Free @ groq.com):", type="password", help="Enter a free API key from console.groq.com to power the AI matcher.")
 
 selected_model = st.sidebar.selectbox("LLM Model Engine", [
-    "llama-3.3-70b-versatile", 
-    "llama-3.1-8b-instant", 
-    "llama-3.2-11b-vision-preview",
-    "llama-3.2-3b-preview"
+    "groq/compound",
+    "groq/compound-mini",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant"
 ])
 
 st.sidebar.markdown("---")
@@ -378,7 +377,11 @@ if nav_selection == "🎯 AI Role Matcher":
         else:
             with st.spinner("Evaluating alignment using Groq AI Cloud..."):
                 try:
-                    result = analyze_job_match(jd_input, api_key=groq_key, model_name=selected_model)
+                    result = analyze_job_match(
+                        jd_input, 
+                        api_key=groq_key, 
+                        model_name=selected_model
+                    )
                     
                     st.markdown("---")
                     c1, c2 = st.columns([1, 2])
