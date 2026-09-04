@@ -287,10 +287,16 @@ def analyze_job_match(job_description: str, api_key: str, model_name: str = "lla
     match_percentage (int), executive_summary (str), matching_skills (list of str), skill_gaps_or_growth (list of str), value_proposition (list of str).
     """
 
-    # List of fallback models in case the selected model string is deprecated
-    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"]
+    # Currently active & supported Groq model strings
+    models_to_try = [
+        model_name,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama-3.2-11b-vision-preview",
+        "llama-3.2-3b-preview"
+    ]
     
-    # Remove duplicates while preserving order
+    # Remove duplicates while preserving user order
     seen = set()
     unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
 
@@ -309,6 +315,7 @@ def analyze_job_match(job_description: str, api_key: str, model_name: str = "lla
             )
             return MatchAnalysis.model_validate_json(response.choices[0].message.content)
         except Exception as err:
+            # Catch exceptions (400 decommissioned/invalid or 404 not found) and try next model
             last_exception = err
             continue
 
@@ -329,9 +336,9 @@ if not groq_key:
 
 selected_model = st.sidebar.selectbox("LLM Model Engine", [
     "llama-3.3-70b-versatile", 
-    "llama3-70b-8192", 
-    "llama3-8b-8192", 
-    "mixtral-8x7b-32768"
+    "llama-3.1-8b-instant", 
+    "llama-3.2-11b-vision-preview",
+    "llama-3.2-3b-preview"
 ])
 
 st.sidebar.markdown("---")
