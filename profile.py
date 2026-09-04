@@ -287,17 +287,32 @@ def analyze_job_match(job_description: str, api_key: str, model_name: str = "lla
     match_percentage (int), executive_summary (str), matching_skills (list of str), skill_gaps_or_growth (list of str), value_proposition (list of str).
     """
 
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": "You are an expert technical talent recruiter. Output strictly valid JSON matching the schema."},
-            {"role": "user", "content": prompt}
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.2
-    )
+    # List of fallback models in case the selected model string is deprecated
+    models_to_try = [model_name, "llama-3.3-70b-versatile", "llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768"]
     
-    return MatchAnalysis.model_validate_json(response.choices[0].message.content)
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+    last_exception = None
+
+    for m in unique_models:
+        try:
+            response = client.chat.completions.create(
+                model=m,
+                messages=[
+                    {"role": "system", "content": "You are an expert technical talent recruiter. Output strictly valid JSON matching the schema."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.2
+            )
+            return MatchAnalysis.model_validate_json(response.choices[0].message.content)
+        except Exception as err:
+            last_exception = err
+            continue
+
+    raise last_exception
 
 # ------------------------------------------------------------------------------
 # 4. UI NAVIGATION & SIDEBAR
@@ -312,7 +327,12 @@ groq_key = st.secrets.get("GROQ_API_KEY", "")
 if not groq_key:
     groq_key = st.sidebar.text_input("Groq API Key (Free @ groq.com):", type="password", help="Enter a free API key from console.groq.com to power the AI matcher.")
 
-selected_model = st.sidebar.selectbox("LLM Model Engine", ["llama-3.3-70b-versatile", "llama3-8b-8192"])
+selected_model = st.sidebar.selectbox("LLM Model Engine", [
+    "llama-3.3-70b-versatile", 
+    "llama3-70b-8192", 
+    "llama3-8b-8192", 
+    "mixtral-8x7b-32768"
+])
 
 st.sidebar.markdown("---")
 nav_selection = st.sidebar.radio(
